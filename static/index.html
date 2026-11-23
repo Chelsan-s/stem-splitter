@@ -358,6 +358,7 @@ function renderList() {
     }</div><button class="del" title="Apagar">${icon("x")}</button>`;
     el.querySelector(".n").textContent = s.title;
     el.querySelector(".s").textContent = line;
+    el.title = `${s.title}\n${line}`;
     el.onclick = () => {
       if (s.status === "done") { watching = null; openSong(s); }
       else if (s.status !== "error") { watching = s.id; renderProgress(s); renderList(); }
