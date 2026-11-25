@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 
 import soundfile as sf
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -148,6 +148,14 @@ def worker() -> None:
 app = FastAPI()
 
 
+@app.middleware("http")
+async def revalidate(request, call_next):
+    """Make the browser revalidate (cheap 304) instead of guessing freshness, so updates show up."""
+    response = await call_next(request)
+    response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 @app.on_event("startup")
 def startup() -> None:
     threading.Thread(target=worker, daemon=True).start()
@@ -207,6 +215,17 @@ def delete(song_id: str) -> dict:
     if not d.is_dir() or d.parent != SONGS:
         raise HTTPException(404)
     shutil.rmtree(d)
+    return {"ok": True}
+
+
+@app.put("/api/songs/{song_id}/mix")
+def save_mix(song_id: str, mix: dict = Body(...)) -> dict:
+    """Persist the mixer setup (volumes, mute/solo, master, loop) for a song."""
+    if (SONGS / song_id).parent != SONGS or not meta_path(song_id).is_file():
+        raise HTTPException(404)
+    meta = read_meta(song_id)
+    meta["mix"] = mix
+    write_meta(meta)
     return {"ok": True}
 
 
