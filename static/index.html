@@ -389,7 +389,12 @@ function renderProgress(s) {
 }
 
 // ---------- Audio engine ----------
-const ctx = new AudioContext();
+// Demucs stems are 44.1 kHz; matching the context avoids resampling every stem on decode.
+const ctx = new AudioContext({ sampleRate: 44100 });
+// Decoded songs kept in memory (LRU) so reopening is instant: current + previous only,
+// since one decoded song is ~0.5–1.2 GB (float32) and this targets 8 GB Macs.
+const CACHE_SONGS = 2;
+const cache = new Map(); // id -> { buffers, peaks }
 const master = ctx.createGain(); master.connect(ctx.destination);
 let tracks = [], duration = 0, playing = false, startAt = 0, offset = 0, sources = [];
 let loop = { a: null, b: null, on: false };
@@ -453,11 +458,21 @@ async function openSong(s) {
   box.querySelectorAll(".row").forEach(r => r.remove());
   tracks = [];
   $("#status").textContent = "Carregando pistas…";
-  const buffers = await Promise.all(s.stems.map(async name => {
-    const data = await (await fetch(`/files/${s.id}/${name}.flac`)).arrayBuffer();
-    return ctx.decodeAudioData(data);
-  }));
+  let entry = cache.get(s.id);
+  if (entry) cache.delete(s.id); // re-insert below as most recent
+  else {
+    const buffers = await Promise.all(s.stems.map(async name => {
+      const data = await (await fetch(`/files/${s.id}/${name}.flac`)).arrayBuffer();
+      return ctx.decodeAudioData(data);
+    }));
+    entry = { buffers, peaks: buffers.map(b => peaks(b)) };
+  }
+  cache.set(s.id, entry);
+  while (cache.size > CACHE_SONGS) cache.delete(cache.keys().next().value);
   if (token !== loadToken) return;
+  const { buffers } = entry, mix = s.mix || {};
+  loop = mix.loop ? { ...mix.loop } : { a: null, b: null, on: false };
+  masterEl.value = mix.master ?? masterEl.defaultValue; setFill(masterEl); master.gain.value = +masterEl.value;
   duration = Math.max(...buffers.map(b => b.duration));
   s.stems.forEach((name, i) => {
     const gain = ctx.createGain(); gain.connect(master);
@@ -469,20 +484,21 @@ async function openSong(s) {
       <div class="vrow"><input type="range" min="0" max="1.5" step="0.01" value="1"><output>100%</output></div></div>
       <div class="lane"><canvas></canvas></div>`;
     row.querySelector(".name").textContent = NAMES[name] || name;
-    const t = { name, buffer: buffers[i], gain, vol: 1, mute: false, solo: false, row, peaks: peaks(buffers[i]) };
+    const saved = mix.tracks?.[name] || {};
+    const t = { name, buffer: buffers[i], gain, vol: 1, mute: !!saved.mute, solo: !!saved.solo, row, peaks: entry.peaks[i] };
     const vol = row.querySelector("input"), out = row.querySelector("output");
-    setFill(vol);
     const setVol = v => { vol.value = v; t.vol = v; out.textContent = `${Math.round(v * 100)}%`; setFill(vol); applyGains(); };
-    row.querySelector(".mute").onclick = () => { t.mute = !t.mute; applyGains(); };
-    row.querySelector(".solo").onclick = () => { t.solo = !t.solo; applyGains(); };
-    vol.oninput = () => setVol(+vol.value);
-    vol.ondblclick = () => setVol(1);
+    setVol(saved.vol ?? 1);
+    row.querySelector(".mute").onclick = () => { t.mute = !t.mute; applyGains(); saveMix(); };
+    row.querySelector(".solo").onclick = () => { t.solo = !t.solo; applyGains(); saveMix(); };
+    vol.oninput = () => { setVol(+vol.value); saveMix(); };
+    vol.ondblclick = () => { setVol(1); saveMix(); };
     bindLane(row.querySelector(".lane"));
     box.appendChild(row);
     tracks.push(t);
   });
   const peakMax = Math.max(...tracks.map(t => t.peaks.reduce((a, b) => Math.max(a, b), 0))) || 1;
-  tracks.forEach(t => { t.peaks = t.peaks.map(v => v / peakMax); });
+  tracks.forEach(t => { t.peaks = t.peaks.map(v => v / peakMax); }); // map() copies; cached raw peaks stay raw
   applyGains(); drawAll(); updateLoopUI();
   $("#status").innerHTML = `<span><kbd>espaço</kbd>tocar/pausar</span><span><kbd>clique</kbd>pular</span>
     <span><kbd>arrastar</kbd>marcar loop</span><span><kbd>2× clique</kbd>volume em 100%</span>`;
@@ -550,7 +566,7 @@ function bindLane(lane) {
     };
     const up = () => {
       removeEventListener("mousemove", move); removeEventListener("mouseup", up);
-      if (dragged) { if (playing) play(loop.a); else offset = loop.a; }
+      if (dragged) { if (playing) play(loop.a); else offset = loop.a; saveMix(); }
       else seek(t0);
     };
     addEventListener("mousemove", move); addEventListener("mouseup", up);
@@ -569,7 +585,19 @@ function updateLoopUI() {
     band.style.opacity = loop.on ? 1 : .4;
   } else band.style.display = "none";
 }
-function loopChanged() { updateLoopUI(); if (playing) play(); }
+function loopChanged() { updateLoopUI(); if (playing) play(); saveMix(); }
+
+// Mixer setup is saved per song (debounced, so slider drags send one request).
+const saveTimers = {};
+function saveMix() {
+  if (!current) return;
+  const s = current;
+  s.mix = { master: +masterEl.value, loop: { ...loop },
+    tracks: Object.fromEntries(tracks.map(t => [t.name, { vol: t.vol, mute: t.mute, solo: t.solo }])) };
+  clearTimeout(saveTimers[s.id]);
+  saveTimers[s.id] = setTimeout(() => fetch(`/api/songs/${s.id}/mix`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s.mix) }), 400);
+}
 
 $("#setA").onclick = () => { loop.a = position(); if (loop.b !== null && loop.b <= loop.a) loop.b = null; loopChanged(); };
 $("#setB").onclick = () => { const p = position(); if (loop.a !== null && p > loop.a) { loop.b = p; loop.on = true; } loopChanged(); };
@@ -578,7 +606,7 @@ $("#clearLoop").onclick = () => { loop = { a: null, b: null, on: false }; loopCh
 $("#play").onclick = () => playing ? pause() : play();
 $("#stop").onclick = () => { pause(); offset = loopValid() ? loop.a : 0; };
 const masterEl = $("#master"); setFill(masterEl);
-masterEl.oninput = () => { setFill(masterEl); master.gain.setTargetAtTime(+masterEl.value, ctx.currentTime, 0.015); };
+masterEl.oninput = () => { setFill(masterEl); master.gain.setTargetAtTime(+masterEl.value, ctx.currentTime, 0.015); saveMix(); };
 addEventListener("keydown", e => {
   if (e.code === "Space" && tracks.length && e.target.tagName !== "INPUT") { e.preventDefault(); playing ? pause() : play(); }
 });

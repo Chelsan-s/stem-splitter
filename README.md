@@ -73,12 +73,11 @@ O navegador abre sozinho em **http://127.0.0.1:8765**. Pronto! 🎉
 Para não precisar do Terminal toda vez, rode isto **uma vez** dentro da pasta do projeto:
 
 ```sh
-mkdir -p ~/Applications
-osacompile -o ~/Applications/"Stem Splitter.app" \
+osacompile -o /Applications/"Stem Splitter.app" \
   -e "do shell script \"/bin/zsh '$(pwd)/start.sh' > /dev/null 2>&1\""
 ```
 
-Agora o **Stem Splitter** aparece em `~/Applications` (pasta Aplicativos do seu usuário). Arraste o ícone para o Dock e abra com um clique.
+Agora o **Stem Splitter** aparece na página de **Apps** (Launchpad) e na pasta Aplicativos. Arraste o ícone para o Dock e abra com um clique.
 
 ---
 
@@ -153,7 +152,7 @@ pkill -f "uvicorn app:app"; ./start.sh
 
 ```sh
 pkill -f "uvicorn app:app"
-rm -rf ~/Documents/stem-splitter ~/Applications/"Stem Splitter.app"
+rm -rf ~/Documents/stem-splitter /Applications/"Stem Splitter.app"
 rm -rf ~/Music/StemSplitter   # ⚠️ apaga também todas as músicas separadas
 ```
 
