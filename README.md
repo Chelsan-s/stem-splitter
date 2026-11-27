@@ -109,7 +109,23 @@ Pode enviar várias músicas: elas entram numa fila e são processadas uma por v
 | **A** / **B** | Marca início/fim do loop no ponto atual |
 | **Loop** / ✕ | Liga/desliga o loop / apaga o loop |
 | 🔊 | Volume geral |
-| **Exportar mix** | Baixa um `.wav` exatamente com o que está tocando (ex.: a música sem o baixo) |
+| **Exportar mix** | Baixa um `.wav` com volumes/mudo/solo do momento (ex.: a música sem o baixo). Não aplica velocidade nem transposição |
+| ⬇ na pista | Baixa só aquela pista (FLAC) |
+| **＋ Setlist** | Adiciona/tira a música de uma setlist. Na barra lateral: crie, renomeie, apague e arraste para ordenar |
+| **Tom** / **Transpor − +** | Tom detectado pela IA; muda o tom em até ±6 semitons (clique no número para voltar) |
+| **Veloc.** | 50%–150% sem mudar o tom (clique no % para voltar a 100%) |
+| **BPM** / **½** / **2×** | Andamento detectado; ½ e 2× corrigem quando a IA dobra ou divide o BPM |
+| **Metrônomo** | Clique seguindo as batidas detectadas (acompanha músicas ao vivo que aceleram). **1º tempo** muda qual batida é o início do compasso |
+| **Contagem** | Conta 4 tempos antes de começar a tocar |
+| **Letra** | Letra sincronizada gerada pela IA; a linha atual fica em destaque, clique numa linha para pular |
+
+Tudo isso (volumes, loop, velocidade, tom, metrônomo) fica salvo por música.
+
+### Análise (tom, BPM e letra)
+
+Depois de separar, a música é analisada automaticamente: tom e BPM em ~30 s; a letra em ~3–4 min (na 1ª vez baixa o modelo de letra, ~460 MB). O mixer já pode ser usado enquanto isso; o progresso aparece na barra do mixer e na Biblioteca. Separações novas sempre passam na frente da análise.
+
+Limitações: o tom acerta na maioria das vezes, mas pode confundir com o relativo (ex.: Sol × Mim); a letra erra algumas palavras; o 1º tempo do compasso é um palpite (use **1º tempo** para corrigir).
 
 ### Tempo de processamento
 
@@ -182,6 +198,9 @@ A separação em andamento termina em segundo plano antes de ir para a próxima.
 - **IA de separação:** [Demucs v4](https://github.com/facebookresearch/demucs) (Meta), via [python-audio-separator](https://github.com/nomadkaraoke/python-audio-separator), rodando na GPU do Apple Silicon (Metal/MPS)
 - **Servidor:** Python + FastAPI (`app.py`)
 - **Mixer:** página web com Web Audio API (`static/index.html`) — todas as pistas tocam presas ao mesmo relógio, sem dessincronizar
+- **Velocidade/tom:** [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) (MIT), incluído em `static/vendor/`
+- **Tom e BPM:** [librosa](https://librosa.org) (`analysis.py`)
+- **Letra:** [Whisper large-v3-turbo](https://huggingface.co/mlx-community/whisper-large-v3-turbo-q4) via [mlx-whisper](https://github.com/ml-explore/mlx-examples), na GPU do Apple Silicon
 
 | Modo | Modelo | Pistas |
 |---|---|---|
