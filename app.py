@@ -19,6 +19,7 @@ ROOT = Path.home() / "Music" / "StemSplitter"
 SONGS = ROOT / "songs"
 MODELS = ROOT / "models"
 WORK = ROOT / ".work"
+SETLISTS = ROOT / "setlists.json"
 for d in (SONGS, MODELS, WORK):
     d.mkdir(parents=True, exist_ok=True)
 
@@ -31,7 +32,8 @@ MODES = {
     "6": ("htdemucs_6s.yaml", ["vocals", "drums", "bass", "guitar", "piano", "other"]),
 }
 
-jobs: "queue.Queue[str]" = queue.Queue()
+jobs: "queue.Queue[str]" = queue.Queue()  # separations (run first)
+analysis_jobs: "queue.Queue[str]" = queue.Queue()  # key/BPM/lyrics, after all separations
 meta_lock = threading.Lock()
 
 
@@ -51,8 +53,21 @@ def write_meta(meta: dict) -> None:
         tmp.replace(p)
 
 
+def write_json(path: Path, data) -> None:
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False))
+    tmp.replace(path)
+
+
+def song_dir(song_id: str) -> Path:
+    d = SONGS / song_id
+    if d.parent != SONGS or not (d / "meta.json").is_file():
+        raise HTTPException(404)
+    return d
+
+
 # Live progress of the song being processed (not persisted).
-progress = {"id": None, "stage": "", "pct": 0.0, "t0": 0.0}
+progress = {"id": None, "stage": "", "pct": 0.0, "t0": 0.0, "bar": "separating"}
 
 
 def set_stage(stage: str, pct: float = 0.0) -> None:
@@ -62,7 +77,7 @@ def set_stage(stage: str, pct: float = 0.0) -> None:
 
 
 def hook_progress_bars() -> None:
-    """Route audio-separator's tqdm bars (model download, separation) into `progress`."""
+    """Route tqdm bars (model download, separation, transcription) into `progress`."""
     import tqdm
 
     class Bar(tqdm.tqdm):
@@ -73,7 +88,7 @@ def hook_progress_bars() -> None:
 
         def _report(self, n: float) -> None:
             if self.total:
-                set_stage("download" if self._download else "separating", min(1.0, n / self.total))
+                set_stage("download" if self._download else progress["bar"], min(1.0, n / self.total))
 
         def __iter__(self):
             for i, x in enumerate(self.iterable):
@@ -88,20 +103,30 @@ def hook_progress_bars() -> None:
     tqdm.tqdm = Bar  # modules using `from tqdm import tqdm` must be imported after this
 
 
+def next_job() -> tuple[str, str]:
+    while True:
+        try:
+            return "separate", jobs.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            return "analyze", analysis_jobs.get(timeout=1)
+        except queue.Empty:
+            pass
+
+
 def worker() -> None:
     hook_progress_bars()
     from audio_separator.separator import Separator
 
+    import analysis
+
     loaded: tuple[str, Separator] | None = None  # keep one model in memory at a time
-    while True:
-        song_id = jobs.get()
-        try:
-            meta = read_meta(song_id)
-        except FileNotFoundError:
-            continue  # deleted while queued
+
+    def separate(song_id: str, meta: dict) -> None:
+        nonlocal loaded
         model, stems = MODES[meta["mode"]]
         meta.update(status="processing", started=time.time())
-        progress["id"] = song_id
         set_stage("loading")
         write_meta(meta)
         try:
@@ -119,6 +144,7 @@ def worker() -> None:
                 f.unlink()
             produced = MODES["4"][1] if meta["mode"] == "2" else stems
             set_stage("reading")
+            progress["bar"] = "separating"
             sep.separate(str(SONGS / song_id / meta["source"]), custom_output_names={s: s for s in produced})
             set_stage("saving")
             if meta["mode"] == "2":
@@ -135,14 +161,49 @@ def worker() -> None:
                 found.append(s)
             if not (SONGS / song_id).exists():
                 shutil.rmtree(out, ignore_errors=True)
-                continue
-            meta.update(status="done", stems=found, finished=time.time())
+                return
+            meta.update(status="done", stems=found, finished=time.time(), analysis="queued")
+            analysis_jobs.put(song_id)
         except Exception as e:  # noqa: BLE001 - report any failure to the UI
             traceback.print_exc()
             meta.update(status="error", error=str(e))
-        progress["id"] = None
         if (SONGS / song_id).exists():
             write_meta(meta)
+
+    def analyze(song_id: str, meta: dict) -> None:
+        nonlocal loaded
+        d = SONGS / song_id
+        meta["analysis"] = "running"
+        write_meta(meta)
+        try:
+            set_stage("analyzing")
+            stems = {s: d / "stems" / f"{s}.flac" for s in meta["stems"]}
+            result = analysis.key_and_beats(stems)
+            write_json(d / "analysis.json", result)  # key/BPM usable before lyrics finish
+            if "vocals" in stems:
+                loaded = None  # free Demucs before loading the lyrics model
+                gc.collect()
+                set_stage("lyrics")
+                progress["bar"] = "lyrics"
+                result["lyrics"] = analysis.lyrics(stems["vocals"])
+                if d.exists():
+                    write_json(d / "analysis.json", result)
+            meta["analysis"] = "done"
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            meta.update(analysis="error", analysis_error=str(e))
+        if d.exists():
+            write_meta(meta)
+
+    while True:
+        kind, song_id = next_job()
+        try:
+            meta = read_meta(song_id)
+        except FileNotFoundError:
+            continue  # deleted while queued
+        progress["id"] = song_id
+        (separate if kind == "separate" else analyze)(song_id, meta)
+        progress["id"] = None
 
 
 app = FastAPI()
@@ -165,6 +226,10 @@ def startup() -> None:
             meta["status"] = "queued"
             write_meta(meta)
             jobs.put(meta["id"])
+        elif meta["status"] == "done" and meta.get("analysis") not in ("done", "error"):
+            meta["analysis"] = "queued"
+            write_meta(meta)
+            analysis_jobs.put(meta["id"])
 
 
 @app.get("/api/songs")
@@ -174,12 +239,12 @@ def list_songs() -> list[dict]:
     for m in items:
         if m["status"] == "queued" and m["id"] in waiting:
             m["queue_pos"] = waiting.index(m["id"]) + 1
-        if m["status"] == "processing" and progress["id"] == m["id"]:
+        if progress["id"] == m["id"]:
             pct, elapsed = progress["pct"], time.time() - progress["t0"]
             m["progress"] = {
                 "stage": progress["stage"],
                 "pct": pct,
-                "eta": elapsed / pct * (1 - pct) if progress["stage"] == "separating" and pct > 0.03 else None,
+                "eta": elapsed / pct * (1 - pct) if progress["stage"] in ("separating", "lyrics") and pct > 0.03 else None,
             }
     return sorted(items, key=lambda m: m["created"], reverse=True)
 
@@ -220,12 +285,30 @@ def delete(song_id: str) -> dict:
 
 @app.put("/api/songs/{song_id}/mix")
 def save_mix(song_id: str, mix: dict = Body(...)) -> dict:
-    """Persist the mixer setup (volumes, mute/solo, master, loop) for a song."""
-    if (SONGS / song_id).parent != SONGS or not meta_path(song_id).is_file():
-        raise HTTPException(404)
+    """Persist the mixer setup (volumes, mute/solo, master, loop, speed, pitch, metronome) for a song."""
+    song_dir(song_id)
     meta = read_meta(song_id)
     meta["mix"] = mix
     write_meta(meta)
+    return {"ok": True}
+
+
+@app.get("/api/songs/{song_id}/analysis")
+def get_analysis(song_id: str) -> FileResponse:
+    p = song_dir(song_id) / "analysis.json"
+    if not p.is_file():
+        raise HTTPException(404)
+    return FileResponse(p, media_type="application/json")
+
+
+@app.get("/api/setlists")
+def get_setlists() -> list:
+    return json.loads(SETLISTS.read_text()) if SETLISTS.is_file() else []
+
+
+@app.put("/api/setlists")
+def put_setlists(setlists: list = Body(...)) -> dict:
+    write_json(SETLISTS, setlists)
     return {"ok": True}
 
 

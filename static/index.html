@@ -185,6 +185,42 @@
             background: rgba(0,0,0,.25); display: flex; gap: 18px; flex-wrap: wrap; }
   #status kbd { font: 10.5px var(--mono); color: var(--dim); padding: 1px 6px; border: 1px solid var(--line2); border-radius: 4px; margin-right: 4px; }
 
+  /* ---------- tools bar (key, pitch, speed, metronome) ---------- */
+  #tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 22px; font-size: 12.5px;
+           border-bottom: 1px solid var(--line); background: rgba(0,0,0,.18); }
+  #tools .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 8px;
+                 background: rgba(0,0,0,.3); border: 1px solid var(--line); color: var(--dim); }
+  #tools .chip b { color: var(--c1); font: 650 13px var(--mono); }
+  #tools button { padding: 4px 9px; font-size: 12px; border-radius: 7px; }
+  #tools button.sq { min-width: 26px; padding: 4px 6px; justify-content: center; font-family: var(--mono); }
+  #tools input[type=range] { width: 84px; }
+  #tools output { font: 12px var(--mono); min-width: 38px; text-align: center; cursor: pointer; }
+  #tools .lbl { color: var(--dim2); font: 700 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+  #tools .push { flex: 1; }
+  /* ---------- lyrics ---------- */
+  #lyrics { height: 150px; flex: none; overflow-y: auto; padding: 14px 22px 60px; text-align: center;
+            border-top: 1px solid var(--line); background: rgba(0,0,0,.22); scroll-behavior: smooth; }
+  #lyrics.hidden { display: none; }
+  #lyrics p { margin: 0; padding: 3px 0; color: var(--dim2); font-size: 15px; cursor: pointer; transition: color .2s; }
+  #lyrics p:hover { color: var(--dim); }
+  #lyrics p.now { color: var(--text); font-weight: 650; text-shadow: 0 0 14px rgba(34,211,238,.35); }
+  #lyrics .msg { color: var(--dim); margin-top: 44px; }
+  /* ---------- setlists / downloads ---------- */
+  .label-sm.flex { display: flex; align-items: center; justify-content: space-between; padding-right: 16px; }
+  .mini { padding: 0 8px; font-size: 14px; line-height: 20px; border-radius: 6px; }
+  #sets { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 14px; }
+  #sets button { padding: 4px 10px; font-size: 12px; border-radius: 14px; }
+  #sets .act { padding: 4px 6px; background: none; border: none; color: var(--dim2); }
+  #sets .act:hover { color: var(--text); }
+  .hint-empty { color: var(--dim2); font-size: 12px; padding: 8px 12px; }
+  .item.drag { opacity: .4; }
+  .ctrl .dl { width: 26px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;
+              color: var(--dim); background: var(--glass2); border: 1px solid var(--line); }
+  .ctrl .dl svg { width: 13px; height: 13px; }
+  .ctrl .dl:hover { color: var(--text); border-color: var(--line2); }
+  select { font: inherit; font-size: 12.5px; color: var(--text); background: var(--glass2); border: 1px solid var(--line);
+           border-radius: 9px; padding: 7px 8px; cursor: pointer; }
+
   ::-webkit-scrollbar { width: 10px; } ::-webkit-scrollbar-thumb { background: rgba(120,140,200,.18); border-radius: 5px; border: 3px solid transparent; background-clip: padding-box; }
 </style>
 </head>
@@ -217,7 +253,9 @@
     <button data-mode="4" class="on">4 pistas</button>
     <button data-mode="6">6 pistas</button>
   </div>
-  <div class="label-sm">Biblioteca</div>
+  <div class="label-sm flex">Setlists <button id="newSet" class="mini" title="Nova setlist">+</button></div>
+  <div id="sets"></div>
+  <div class="label-sm" id="libLabel">Biblioteca</div>
   <div id="list"></div>
 </aside>
 
@@ -255,10 +293,30 @@
       <div class="sep"></div>
       <div class="vol" title="Volume geral"><svg><use href="#i-vol"/></svg><input id="master" type="range" min="0" max="1.5" step="0.01" value="1"></div>
       <div class="sep"></div>
+      <select id="addSet" title="Adicionar esta música a uma setlist"></select>
       <button id="export"><svg><use href="#i-dl"/></svg><span>Exportar mix</span></button>
     </header>
+    <div id="tools">
+      <span class="chip" id="keyChip" title="Tom detectado pela IA">Tom <b>…</b></span>
+      <span class="grp" title="Transpor o tom (semitons)"><span class="lbl">Transpor</span>
+        <button class="sq" id="semDown">−</button><output id="semOut" title="Clique para voltar ao tom original">0</output><button class="sq" id="semUp">+</button></span>
+      <span class="grp" title="Velocidade sem mudar o tom"><span class="lbl">Veloc.</span>
+        <input id="rate" type="range" min="0.5" max="1.5" step="0.05" value="1"><output id="rateOut" title="Clique para voltar a 100%">100%</output></span>
+      <div class="sep"></div>
+      <span class="chip" id="bpmChip" title="Andamento detectado pela IA">BPM <b>…</b></span>
+      <button class="sq" id="bpmHalf" title="Metade do BPM (se a IA dobrou)">½</button>
+      <button class="sq" id="bpmDouble" title="Dobro do BPM (se a IA dividiu)">2×</button>
+      <button id="metro" title="Metrônomo seguindo as batidas detectadas">Metrônomo</button>
+      <input id="metroVol" type="range" min="0" max="1" step="0.05" value="0.6" title="Volume do metrônomo">
+      <button id="shiftOne" title="Muda qual batida é o 1º tempo do compasso (o clique mais agudo)">1º tempo</button>
+      <button id="countIn" title="Conta 4 tempos antes de começar a tocar">Contagem</button>
+      <span class="push"></span>
+      <span class="lbl" id="anaStatus"></span>
+      <button id="lyricsBtn">Letra</button>
+    </div>
     <div id="ruler"><div class="pad">PISTAS</div><div class="lane"><canvas></canvas></div></div>
     <div id="tracks"><div id="overlay"><div id="future"></div><div id="loopband"></div><div id="playhead"></div></div></div>
+    <div id="lyrics"></div>
     <div id="status"></div>
   </div>
 </main>
@@ -277,6 +335,7 @@ const setFill = el => el.style.setProperty("--fill", `${(el.value - el.min) / (e
 
 // ---------- Library ----------
 let mode = "4", songs = [], current = null, pollTimer = null;
+let setlists = [], activeSet = null, dragId = null;
 
 document.querySelectorAll(".modes button").forEach(b => b.onclick = () => {
   mode = b.dataset.mode;
@@ -306,6 +365,7 @@ async function upload(files) {
 const STAGE = {
   loading: "Carregando o modelo de IA…", download: "Baixando o modelo (só na 1ª vez)",
   reading: "Lendo o áudio…", separating: "Separando as pistas", saving: "Salvando as pistas…",
+  analyzing: "Detectando tom e BPM…", lyrics: "Gerando a letra",
 };
 let watching = null; // song id shown in the progress panel
 
@@ -324,12 +384,22 @@ function describe(s) {
     return { text: STAGE[p.stage] || "Processando…", pct: bar, eta: p.eta };
   }
   if (s.status === "error") return { text: "Erro: " + s.error };
+  if (s.progress) // analysis running on a finished song
+    return { text: STAGE[s.progress.stage] || "Analisando…", pct: s.progress.stage === "lyrics" ? s.progress.pct : null, eta: s.progress.eta };
   return { text: MODE_LABEL[s.mode] };
 }
 
 async function refresh() {
   songs = await (await fetch("/api/songs")).json();
-  renderList();
+  if (!dragId) renderList();
+  if (current) { // keep the open song's analysis state in sync
+    const s = songs.find(x => x.id === current.id);
+    if (s) {
+      const changed = s.analysis !== current.analysis;
+      current.analysis = s.analysis; current.progress = s.progress;
+      if (changed || (s.analysis === "running" && !analysisData)) loadAnalysis(current); else renderAnalysis();
+    }
+  }
   if (watching) {
     const s = songs.find(x => x.id === watching);
     if (!s) { watching = null; show(current ? "mixer" : "empty"); }
@@ -337,13 +407,17 @@ async function refresh() {
     else renderProgress(s);
   }
   clearTimeout(pollTimer);
-  if (songs.some(s => s.status === "queued" || s.status === "processing")) pollTimer = setTimeout(refresh, 1000);
+  const busy = s => s.status === "queued" || s.status === "processing" || s.analysis === "queued" || s.analysis === "running";
+  if (songs.some(busy)) pollTimer = setTimeout(refresh, 1000);
 }
 
 function renderList() {
   const list = $("#list");
   list.innerHTML = "";
-  for (const s of songs) {
+  const set = setlists.find(x => x.id === activeSet);
+  const shown = set ? set.songs.map(id => songs.find(s => s.id === id)).filter(Boolean) : songs;
+  if (set && !shown.length) list.innerHTML = `<div class="hint-empty">Setlist vazia. Abra uma música e use “＋ Setlist” no topo do mixer.</div>`;
+  for (const s of shown) {
     const el = document.createElement("div");
     const selected = watching ? watching === s.id : current && current.id === s.id;
     const busy = s.status === "queued" || s.status === "processing";
@@ -365,11 +439,26 @@ function renderList() {
     };
     el.querySelector(".del").onclick = async e => {
       e.stopPropagation();
+      if (set) { set.songs = set.songs.filter(id => id !== s.id); saveSets(); return; }
       if (!confirm(`Apagar "${s.title}" e suas pistas?`)) return;
       await fetch(`/api/songs/${s.id}`, { method: "DELETE" });
       if (current && current.id === s.id) closeSong();
       refresh();
     };
+    if (set) { // drag to reorder the setlist
+      el.querySelector(".del").title = "Tirar da setlist";
+      el.draggable = true;
+      el.ondragstart = () => { dragId = s.id; el.classList.add("drag"); };
+      el.ondragend = () => { dragId = null; el.classList.remove("drag"); };
+      el.ondragover = e => e.preventDefault();
+      el.ondrop = e => {
+        e.preventDefault();
+        if (!dragId || dragId === s.id) return;
+        const ids = set.songs.filter(id => id !== dragId);
+        ids.splice(ids.indexOf(s.id), 0, dragId);
+        set.songs = ids; dragId = null; saveSets();
+      };
+    }
     list.appendChild(el);
   }
 }
@@ -396,6 +485,11 @@ const ctx = new AudioContext({ sampleRate: 44100 });
 const CACHE_SONGS = 2;
 const cache = new Map(); // id -> { buffers, peaks }
 const master = ctx.createGain(); master.connect(ctx.destination);
+// Stems -> bus -> (pitch shifter when speed/pitch changed) -> master. Speed = playbackRate (which also
+// shifts pitch); the shifter undoes that and adds the transpose, so the stems stay sample-locked.
+const bus = ctx.createGain(); bus.connect(master);
+const clickOut = ctx.createDelay(1); clickOut.connect(master); // metronome, delayed to match shifter latency
+let rate = 1, semis = 0, stretch = null, stretchP = null, shiftOn = false, shiftLat = 0;
 let tracks = [], duration = 0, playing = false, startAt = 0, offset = 0, sources = [];
 let loop = { a: null, b: null, on: false };
 let loadToken = 0;
@@ -415,8 +509,8 @@ function applyGains() {
 const loopValid = () => loop.on && loop.a !== null && loop.b !== null && loop.b - loop.a > 0.05;
 
 function position() {
-  if (!playing) return offset;
-  let p = offset + (ctx.currentTime - startAt);
+  if (!playing || ctx.currentTime < startAt) return offset; // before start = during count-in
+  let p = offset + (ctx.currentTime - startAt) * rate;
   if (loopValid() && p >= loop.b) p = loop.a + ((p - loop.b) % (loop.b - loop.a));
   return p;
 }
@@ -427,19 +521,111 @@ function play(from = position()) {
   stopSources();
   if (loopValid() && (from < loop.a || from >= loop.b)) from = loop.a;
   if (from >= duration) from = 0;
-  const when = ctx.currentTime + 0.05;
+  stopClicks();
+  let when = ctx.currentTime + 0.05;
+  if (countIn && beatList.length) when = scheduleCountIn(from, when);
   for (const t of tracks) {
     const s = ctx.createBufferSource();
     s.buffer = t.buffer;
+    s.playbackRate.value = rate;
     if (loopValid()) { s.loop = true; s.loopStart = loop.a; s.loopEnd = loop.b; }
     s.connect(t.gain);
     s.start(when, from);
     sources.push(s);
   }
   offset = from; startAt = when; playing = true;
+  resetMetro(true);
   setPlayIcon();
 }
-function pause() { offset = position(); stopSources(); playing = false; setPlayIcon(); }
+function pause() { offset = position(); stopSources(); stopClicks(); playing = false; setPlayIcon(); }
+
+function setRate(r) {
+  if (playing && ctx.currentTime < startAt) { rate = r; play(offset); } // during count-in: restart it
+  else {
+    if (playing) { offset = position(); startAt = ctx.currentTime; } // re-anchor the clock at the new speed
+    rate = r;
+    sources.forEach(s => s.playbackRate.setValueAtTime(r, ctx.currentTime));
+    resetMetro();
+  }
+  updateShift(); renderAnalysis(); saveMix();
+}
+function setSemis(v) { semis = Math.max(-6, Math.min(6, v)); updateShift(); renderAnalysis(); saveMix(); }
+async function updateShift() {
+  if ((rate !== 1 || semis !== 0) && !stretch) {
+    stretchP ??= import("/vendor/SignalsmithStretch.mjs").then(m => m.default(ctx)).then(n => (n.connect(master), n));
+    stretch = await stretchP;
+  }
+  if (!stretch) return;
+  const need = rate !== 1 || semis !== 0;
+  if (need !== shiftOn) {
+    bus.disconnect(); bus.connect(need ? stretch : master);
+    need ? stretch.start() : stretch.stop();
+    shiftOn = need;
+  }
+  shiftLat = need ? await stretch.latency() : 0; // remote call into the worklet -> Promise
+  clickOut.delayTime.value = shiftLat;
+  if (need) stretch.schedule({ output: ctx.currentTime + shiftLat, semitones: semis - 12 * Math.log2(rate), formantCompensation: true });
+}
+
+// ---------- Metronome / count-in (on the AI-detected beats) ----------
+const METRO_DEFAULT = { on: false, vol: 0.6, factor: 1, shift: 0 };
+let metro = { ...METRO_DEFAULT }, countIn = false, analysisData = null, beatList = [], nb = null;
+const clicks = [];
+function computeBeats() {
+  const raw = analysisData?.beats || [];
+  beatList = metro.factor < 1 ? raw.filter((_, i) => i % 2 === 0)
+    : metro.factor > 1 ? raw.flatMap((x, i) => i + 1 < raw.length ? [x, (x + raw[i + 1]) / 2] : [x]) : raw;
+}
+const isDownbeat = i => ((i - metro.shift) % 4 + 4) % 4 === 0;
+function click(t, accent, vol = metro.vol) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.value = accent ? 1760 : 1175;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(Math.max(vol, 0.001), t + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  o.connect(g).connect(clickOut);
+  o.start(t); o.stop(t + 0.07);
+  clicks.push(o);
+  o.onended = () => clicks.splice(clicks.indexOf(o), 1);
+}
+function stopClicks() { clicks.splice(0).forEach(o => { o.onended = null; try { o.stop(); } catch {} }); nb = null; }
+// Next beat to click: { i: index in beatList, t: ctx time }, following the loop if active.
+function firstBeat(from, when) {
+  const B = beatList, i = B.findIndex(b => b >= from - 0.001);
+  if (loopValid() && (i < 0 || B[i] >= loop.b)) {
+    const j = B.findIndex(b => b >= loop.a);
+    return j < 0 || B[j] >= loop.b ? null : { i: j, t: when + (loop.b - from + B[j] - loop.a) / rate };
+  }
+  return i < 0 ? null : { i, t: when + (B[i] - from) / rate };
+}
+function nextBeat({ i, t }) {
+  const B = beatList, j = i + 1;
+  if (loopValid() && (j >= B.length || B[j] >= loop.b)) {
+    const k = B.findIndex(b => b >= loop.a);
+    return { i: k, t: t + (loop.b - B[i] + B[k] - loop.a) / rate };
+  }
+  return j < B.length ? { i: j, t: t + (B[j] - B[i]) / rate } : null;
+}
+function resetMetro(keepCountIn = false) {
+  if (!keepCountIn) stopClicks();
+  nb = playing && metro.on && beatList.length ? firstBeat(position(), Math.max(ctx.currentTime, startAt)) : null;
+}
+setInterval(() => { // look-ahead scheduler
+  while (nb && nb.t < ctx.currentTime + 0.2) {
+    if (nb.t >= ctx.currentTime - 0.01) click(nb.t, isDownbeat(nb.i));
+    nb = nextBeat(nb);
+  }
+}, 25);
+// 4 clicks on the beat grid before `from`; returns the ctx time at which the music must start.
+function scheduleCountIn(from, when) {
+  const B = beatList;
+  let i = B.findIndex(b => b >= from - 0.001);
+  if (i < 0) i = B.length - 1;
+  const p = (B[i + 1] - B[i]) || (B[i] - B[i - 1]) || 0.5, first = B[i] - 4 * p;
+  const t0 = when + Math.max(0, (from - first) / rate);
+  for (let k = 4; k >= 1; k--) click(t0 + (B[i] - k * p - from) / rate, k === 4, Math.max(metro.vol, 0.4));
+  return t0;
+}
 function seek(t) { t = Math.min(Math.max(0, t), duration); playing ? play(t) : (offset = t); }
 
 function closeSong() {
@@ -473,17 +659,24 @@ async function openSong(s) {
   const { buffers } = entry, mix = s.mix || {};
   loop = mix.loop ? { ...mix.loop } : { a: null, b: null, on: false };
   masterEl.value = mix.master ?? masterEl.defaultValue; setFill(masterEl); master.gain.value = +masterEl.value;
+  rate = mix.rate ?? 1; semis = mix.semis ?? 0; updateShift();
+  metro = { ...METRO_DEFAULT, ...mix.metro }; countIn = !!mix.countIn;
+  analysisData = null; computeBeats();
   duration = Math.max(...buffers.map(b => b.duration));
   s.stems.forEach((name, i) => {
-    const gain = ctx.createGain(); gain.connect(master);
+    const gain = ctx.createGain(); gain.connect(bus);
     const row = document.createElement("div");
     row.className = "row";
     row.style.setProperty("--tc", COLORS[name] || "#aaa");
     row.innerHTML = `<div class="ctrl"><div class="top"><span class="name"></span>
+      <a class="dl" title="Baixar esta pista (FLAC)">${icon("dl")}</a>
       <button class="pill mute" title="Mudo">M</button><button class="pill solo" title="Solo">S</button></div>
       <div class="vrow"><input type="range" min="0" max="1.5" step="0.01" value="1"><output>100%</output></div></div>
       <div class="lane"><canvas></canvas></div>`;
     row.querySelector(".name").textContent = NAMES[name] || name;
+    const dl = row.querySelector(".dl");
+    dl.href = `/files/${s.id}/${name}.flac`;
+    dl.download = `${s.title} - ${NAMES[name] || name}.flac`;
     const saved = mix.tracks?.[name] || {};
     const t = { name, buffer: buffers[i], gain, vol: 1, mute: !!saved.mute, solo: !!saved.solo, row, peaks: entry.peaks[i] };
     const vol = row.querySelector("input"), out = row.querySelector("output");
@@ -500,6 +693,7 @@ async function openSong(s) {
   const peakMax = Math.max(...tracks.map(t => t.peaks.reduce((a, b) => Math.max(a, b), 0))) || 1;
   tracks.forEach(t => { t.peaks = t.peaks.map(v => v / peakMax); }); // map() copies; cached raw peaks stay raw
   applyGains(); drawAll(); updateLoopUI();
+  renderSets(); renderAnalysis(); renderLyrics(); loadAnalysis(s);
   $("#status").innerHTML = `<span><kbd>espaço</kbd>tocar/pausar</span><span><kbd>clique</kbd>pular</span>
     <span><kbd>arrastar</kbd>marcar loop</span><span><kbd>2× clique</kbd>volume em 100%</span>`;
 }
@@ -548,6 +742,15 @@ function drawRuler() {
     g.fillRect(x, major ? h - 10 : h - 5, 1, major ? 10 : 5);
     if (major) g.fillText(fmt(s), x + 4, 12);
   }
+  // Beat grid: bar lines (1st beat) always, other beats only when they are far enough apart.
+  const px = b => Math.round((b / duration) * w) + .5;
+  const dense = beatList.length && (w / beatList.length) < 4;
+  beatList.forEach((b, i) => {
+    const bar = isDownbeat(i);
+    if (!bar && dense) return;
+    g.fillStyle = bar ? "rgba(34,211,238,.55)" : "rgba(34,211,238,.2)";
+    g.fillRect(px(b), 0, 1, bar ? 6 : 3);
+  });
 }
 addEventListener("resize", () => tracks.length && drawAll());
 $("#ruler .lane").onclick = e => { const r = e.currentTarget.getBoundingClientRect(); seek(((e.clientX - r.left) / r.width) * duration); };
@@ -592,7 +795,7 @@ const saveTimers = {};
 function saveMix() {
   if (!current) return;
   const s = current;
-  s.mix = { master: +masterEl.value, loop: { ...loop },
+  s.mix = { master: +masterEl.value, loop: { ...loop }, rate, semis, metro: { ...metro }, countIn,
     tracks: Object.fromEntries(tracks.map(t => [t.name, { vol: t.vol, mute: t.mute, solo: t.solo }])) };
   clearTimeout(saveTimers[s.id]);
   saveTimers[s.id] = setTimeout(() => fetch(`/api/songs/${s.id}/mix`, {
@@ -620,9 +823,152 @@ addEventListener("keydown", e => {
     const pct = (p / duration * 100) + "%";
     $("#playhead").style.left = pct;
     $("#future").style.left = pct;
+    highlightLyric(Math.max(0, p - shiftLat * rate)); // what is being heard (shifter adds latency)
   }
   requestAnimationFrame(tick);
 })();
+
+// ---------- Analysis: key, BPM, lyrics ----------
+const NOTES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+const keyName = (tonic, mode) => NOTES[((tonic % 12) + 12) % 12] + (mode === "minor" ? "m" : "");
+const rateEl = $("#rate"), metroVolEl = $("#metroVol");
+let showLyrics = localStorage.lyrics !== "0", lyricIdx = -1;
+
+async function loadAnalysis(s) {
+  const r = await fetch(`/api/songs/${s.id}/analysis`);
+  const data = r.ok ? await r.json() : null;
+  if (current?.id !== s.id) return;
+  analysisData = data; computeBeats();
+  renderAnalysis(); renderLyrics(); resetMetro();
+}
+function renderAnalysis() {
+  const k = analysisData?.key, bpm = analysisData?.bpm;
+  $("#keyChip b").textContent = !k ? "…" : semis ? `${keyName(k.tonic, k.mode)} → ${keyName(k.tonic + semis, k.mode)}` : keyName(k.tonic, k.mode);
+  const base = bpm && Math.round(bpm * metro.factor);
+  $("#bpmChip b").textContent = !bpm ? "…" : rate !== 1 ? `${base} → ${Math.round(base * rate)}` : base;
+  const st = current?.analysis, pr = current?.progress;
+  $("#anaStatus").textContent = st === "running"
+    ? (pr?.stage === "lyrics" ? `Gerando letra… ${Math.round((pr.pct || 0) * 100)}%` : "Analisando tom e BPM…")
+    : st === "queued" ? "Análise na fila…" : st === "error" ? "Falha na análise" : "";
+  ["#metro", "#countIn", "#bpmHalf", "#bpmDouble", "#shiftOne"].forEach(id => $(id).disabled = !beatList.length);
+  $("#metro").classList.toggle("on", metro.on);
+  $("#countIn").classList.toggle("on", countIn);
+  $("#bpmHalf").classList.toggle("on", metro.factor < 1);
+  $("#bpmDouble").classList.toggle("on", metro.factor > 1);
+  $("#shiftOne").textContent = metro.shift ? `1º tempo +${metro.shift}` : "1º tempo";
+  $("#semOut").textContent = semis > 0 ? `+${semis}` : semis;
+  $("#semOut").classList.toggle("on", semis !== 0);
+  rateEl.value = rate; setFill(rateEl); $("#rateOut").textContent = `${Math.round(rate * 100)}%`;
+  metroVolEl.value = metro.vol; setFill(metroVolEl);
+  if (duration) drawRuler();
+}
+function renderLyrics() {
+  const box = $("#lyrics"), segs = analysisData?.lyrics?.segments;
+  box.classList.toggle("hidden", !showLyrics);
+  $("#lyricsBtn").classList.toggle("on", showLyrics);
+  lyricIdx = -1;
+  box.innerHTML = "";
+  if (!segs?.length) {
+    const st = current?.analysis, msg = document.createElement("div");
+    msg.className = "msg";
+    msg.textContent = st === "error" ? "Não foi possível gerar a letra."
+      : st === "done" ? (analysisData?.lyrics ? "Nenhuma letra detectada." : "Sem pista de voz para gerar a letra.")
+      : "A IA está gerando a letra… ela aparece aqui quando terminar.";
+    box.appendChild(msg);
+    return;
+  }
+  for (const seg of segs) {
+    const p = document.createElement("p");
+    p.textContent = seg.text;
+    p.onclick = () => seek(seg.start);
+    box.appendChild(p);
+  }
+}
+function highlightLyric(t) {
+  const segs = analysisData?.lyrics?.segments;
+  if (!segs?.length || !showLyrics) return;
+  let i = -1;
+  while (i + 1 < segs.length && segs[i + 1].start <= t) i++;
+  if (i === lyricIdx) return;
+  const box = $("#lyrics"), lines = box.querySelectorAll("p");
+  lines[lyricIdx]?.classList.remove("now");
+  lyricIdx = i;
+  const el = lines[i];
+  if (el) { el.classList.add("now"); box.scrollTop = el.offsetTop - box.offsetTop - box.clientHeight / 2 + el.clientHeight / 2; }
+}
+
+$("#semDown").onclick = () => setSemis(semis - 1);
+$("#semUp").onclick = () => setSemis(semis + 1);
+$("#semOut").onclick = () => setSemis(0);
+rateEl.oninput = () => setRate(+rateEl.value);
+$("#rateOut").onclick = () => setRate(1);
+$("#metro").onclick = () => { metro.on = !metro.on; resetMetro(); renderAnalysis(); saveMix(); };
+metroVolEl.oninput = () => { metro.vol = +metroVolEl.value; setFill(metroVolEl); saveMix(); };
+const setFactor = f => { metro.factor = f; metro.shift = 0; computeBeats(); resetMetro(); renderAnalysis(); saveMix(); };
+$("#bpmHalf").onclick = () => setFactor(metro.factor < 1 ? 1 : 0.5);
+$("#bpmDouble").onclick = () => setFactor(metro.factor > 1 ? 1 : 2);
+$("#shiftOne").onclick = () => { metro.shift = (metro.shift + 1) % 4; renderAnalysis(); saveMix(); };
+$("#countIn").onclick = () => { countIn = !countIn; renderAnalysis(); saveMix(); };
+$("#lyricsBtn").onclick = () => { showLyrics = !showLyrics; localStorage.lyrics = showLyrics ? "1" : "0"; renderLyrics(); };
+
+// ---------- Setlists ----------
+async function loadSets() { setlists = await (await fetch("/api/setlists")).json(); renderSets(); renderList(); }
+function saveSets() {
+  fetch("/api/setlists", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(setlists) });
+  renderSets(); renderList();
+}
+const askName = (q, v = "") => (prompt(q, v) || "").trim();
+const newSetId = () => Math.random().toString(36).slice(2, 10);
+function renderSets() {
+  const box = $("#sets"), set = setlists.find(x => x.id === activeSet);
+  box.innerHTML = "";
+  const chip = (label, id) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.classList.toggle("on", activeSet === id);
+    b.onclick = () => { activeSet = id; renderSets(); renderList(); };
+    box.appendChild(b);
+  };
+  chip("Todas", null);
+  for (const st of setlists) chip(`${st.name} · ${st.songs.length}`, st.id);
+  if (set) {
+    const ren = document.createElement("button"), del = document.createElement("button");
+    ren.className = del.className = "act";
+    ren.title = "Renomear setlist"; ren.textContent = "✎";
+    ren.onclick = () => { const n = askName("Nome da setlist:", set.name); if (n) { set.name = n; saveSets(); } };
+    del.title = "Apagar setlist"; del.innerHTML = icon("x");
+    del.onclick = () => {
+      if (!confirm(`Apagar a setlist "${set.name}"? As músicas continuam na biblioteca.`)) return;
+      setlists = setlists.filter(x => x !== set); activeSet = null; saveSets();
+    };
+    box.append(ren, del);
+  }
+  $("#libLabel").textContent = set ? `Setlist · ${set.name} (arraste para ordenar)` : "Biblioteca";
+  const sel = $("#addSet");
+  sel.innerHTML = "";
+  const opt = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
+  opt("", "＋ Setlist");
+  for (const st of setlists) opt(st.id, `${current && st.songs.includes(current.id) ? "✓ " : ""}${st.name}`);
+  opt("new", "Nova setlist…");
+}
+$("#newSet").onclick = () => {
+  const n = askName("Nome da nova setlist:");
+  if (!n) return;
+  const st = { id: newSetId(), name: n, songs: [] };
+  setlists.push(st); activeSet = st.id; saveSets();
+};
+$("#addSet").onchange = e => {
+  const v = e.target.value;
+  e.target.value = "";
+  if (!current || !v) return;
+  if (v === "new") {
+    const n = askName("Nome da nova setlist:");
+    if (n) setlists.push({ id: newSetId(), name: n, songs: [current.id] });
+  } else { // toggle membership
+    const st = setlists.find(x => x.id === v);
+    st.songs = st.songs.includes(current.id) ? st.songs.filter(id => id !== current.id) : [...st.songs, current.id];
+  }
+  saveSets();
+};
 
 // ---------- Export current mix ----------
 $("#export").onclick = async () => {
@@ -663,6 +1009,7 @@ function wav(buf) {
 }
 
 refresh();
+loadSets();
 </script>
 </body>
 </html>
